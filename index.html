@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI AUDIO 2 SUB (Embedded Key)</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎧</text></svg>">
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+        
+        body { font-family: 'Sarabun', sans-serif; background-color: #020617; color: #e2e8f0; }
+        .glass {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        .logo-gradient {
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // ==========================================
+        // 🔑 ZONE ตั้งค่า API KEY (ฝังในโค้ด)
+        // ==========================================
+        const EMBEDDED_KEYS = {
+            // ใส่ Key ของคุณที่นี่ (Gemini 3 Flash / Pro)
+            google: "AIzaSyADgNhC8mOnZQql-Nrsuqi9hVg3HUuObeg", 
+            
+            // ใส่ Key ของ Groq ถ้ามี (ถ้าไม่มีปล่อยว่างไว้)
+            groq: "" 
+        };
+        // ==========================================
+
+        const { useState, useEffect, useRef } = React;
+
+        // --- Custom Logo Component ---
+        const AppLogo = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500">
+                <path d="M12 2c-5.5 0-10 4.5-10 10s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z" className="opacity-20 fill-blue-500/20"/>
+                <path d="M10 9L15 12L10 15V9" fill="currentColor"/>
+                <path d="M3 12h2"/>
+                <path d="M19 12h2"/>
+                <path d="M12 3v2"/>
+                <path d="M12 19v2"/>
+            </svg>
+        );
+
+        // --- Icons ---
+        const IconFile = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>;
+        const IconPlay = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
+        const IconDownload = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>;
+        const IconCode = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>;
+
+        const formatTimeDisplay = (seconds) => {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        };
+
+        const App = () => {
+            // Configuration
+            const [provider, setProvider] = useState('google');
+            const [apiKey, setApiKey] = useState('');
+            const [model, setModel] = useState('gemini-2.0-flash-exp');
+            const [chunkMinutes, setChunkMinutes] = useState(10);
+            const [outputFormat, setOutputFormat] = useState('srt');
+            const [isEroticMode, setIsEroticMode] = useState(false);
+
+            // Processing State
+            const [file, setFile] = useState(null);
+            const [duration, setDuration] = useState(0);
+            const [status, setStatus] = useState('idle'); 
+            const [progress, setProgress] = useState({ current: 0, total: 0 });
+            const [liveText, setLiveText] = useState('');
+            const [currentAction, setCurrentAction] = useState('');
+            
+            const textareaRef = useRef(null);
+
+            // Init Key Logic (Priority: LocalStorage -> Embedded -> Empty)
+            useEffect(() => {
+                const storedKey = localStorage.getItem(`api_key_${provider}`);
+                const embeddedKey = EMBEDDED_KEYS[provider];
+
+                if (storedKey) {
+                    setApiKey(storedKey);
+                } else if (embeddedKey) {
+                    setApiKey(embeddedKey);
+                } else {
+                    setApiKey('');
+                }
+            }, [provider]);
+
+            const saveKey = (val) => {
+                const cleanedKey = val.trim();
+                setApiKey(cleanedKey);
+                localStorage.setItem(`api_key_${provider}`, cleanedKey);
+            };
+
+            // Helper to reset to embedded key
+            const useEmbeddedKey = () => {
+                const key = EMBEDDED_KEYS[provider];
+                if(key) {
+                    setApiKey(key);
+                    localStorage.removeItem(`api_key_${provider}`); // Clear local override
+                    alert(`เรียกใช้ Key ฝังในโค้ดเรียบร้อยแล้ว (${key.substring(0,6)}...)`);
+                } else {
+                    alert('ไม่พบ Key ฝังในโค้ดสำหรับ Provider นี้');
+                }
+            };
+
+            useEffect(() => {
+                if (textareaRef.current) {
+                    textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+                }
+            }, [liveText]);
+
+            const handleFileSelect = (e) => {
+                const f = e.target.files[0];
+                if (!f) return;
+                setFile(f);
+                setLiveText('');
+                setStatus('idle');
+                const url = URL.createObjectURL(f);
+                const audio = document.createElement('audio');
+                audio.src = url;
+                audio.onloadedmetadata = () => {
+                    setDuration(audio.duration);
+                    URL.revokeObjectURL(url);
+                };
+            };
+
+            // --- CORE LOGIC ---
+            const uploadToGemini = async () => {
+                setCurrentAction(`กำลังอัพโหลดไฟล์ (${(file.size/1024/1024).toFixed(1)} MB)...`);
+                const initRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Goog-Upload-Protocol': 'resumable',
+                        'X-Goog-Upload-Command': 'start',
+                        'X-Goog-Upload-Header-Content-Length': file.size,
+                        'X-Goog-Upload-Header-Content-Type': file.type,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ file: { display_name: file.name } }),
+                });
+                const uploadUrl = initRes.headers.get('x-goog-upload-url');
+                const uploadRes = await fetch(uploadUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Length': file.size, 'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize' },
+                    body: file,
+                });
+                return (await uploadRes.json()).file;
+            };
+
+            const waitForGemini = async (uri) => {
+                setCurrentAction('กำลังรอ Google ประมวลผลไฟล์ (Audio Processing)...');
+                setStatus('processing');
+                let state = 'PROCESSING';
+                while (state === 'PROCESSING') {
+                    await new Promise(r => setTimeout(r, 4000));
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${uri.replace('https://generativelanguage.googleapis.com/v1beta/', '')}?key=${apiKey}`);
+                    state = (await res.json()).state;
+                }
+                return state === 'ACTIVE';
+            };
+
+            const generateSegment = async (fileUri, start, end) => {
+                let timeInstruction = "";
+                let formatExample = "";
+
+                if (outputFormat === 'vtt') {
+                    timeInstruction = "IMPORTANT: Use DOT (.) as separator for milliseconds. Format: hh:mm:ss.SSS";
+                    formatExample = "Example: 00:00:10.500 --> 00:00:15.000";
+                } else { // srt
+                    timeInstruction = "IMPORTANT: Use COMMA (,) as separator for milliseconds. Format: hh:mm:ss,SSS";
+                    formatExample = "Example: 00:00:10,500 --> 00:00:15,000";
+                }
+
+                const prompt = `
+                Transcribe audio from ${formatTimeDisplay(start)} to ${formatTimeDisplay(end)}.
+                Output Format: ${outputFormat.toUpperCase()} only.
+                Language: Detect automatically (Original Language).
+                
+                STRICT REQUIREMENTS:
+                1. ${timeInstruction}
+                2. ${formatExample}
+                3. Use absolute timestamps starting from ${formatTimeDisplay(start)}.
+                4. Do NOT include any header (like WEBVTT) in this segment output.
+                5. Output strictly the subtitle blocks only.
+                `;
+                
+                const safetySettings = isEroticMode ? [
+                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+                ] : [];
+
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }, { file_data: { mime_type: file.type, file_uri: fileUri } }] }],
+                        safetySettings
+                    })
+                });
+                
+                const data = await res.json();
+                if(data.error) throw new Error(data.error.message);
+                
+                let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                text = text.replace(/WEBVTT\n\n/g, "").replace(/```(srt|vtt)?/g, '').replace(/```/g, '').trim();
+                return text;
+            };
+
+            const run = async () => {
+                if (!apiKey || !file) return alert('กรุณาเลือกไฟล์ (API Key ใช้จากโค้ดแล้ว)');
+                
+                try {
+                    setStatus('uploading');
+                    
+                    let accumulated = "";
+                    if (outputFormat === 'vtt') accumulated = "WEBVTT\n\n";
+                    setLiveText(accumulated);
+
+                    if (provider === 'groq') {
+                        setCurrentAction('Whisper กำลังทำงาน...');
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        formData.append('model', 'whisper-large-v3');
+                        formData.append('response_format', outputFormat);
+                        const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+                            method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}` }, body: formData
+                        });
+                        const text = await res.text();
+                        setLiveText(text);
+                    } else {
+                        const uploadedFile = await uploadToGemini();
+                        await waitForGemini(uploadedFile.name);
+
+                        const chunkSize = chunkMinutes * 60;
+                        const total = Math.ceil(duration / chunkSize);
+                        setProgress({ current: 0, total });
+                        setStatus('running');
+
+                        for (let i = 0; i < total; i++) {
+                            const start = i * chunkSize;
+                            const end = Math.min((i + 1) * chunkSize, duration);
+                            setCurrentAction(`กำลังถอดเสียงช่วงที่ ${i+1}/${total} (${formatTimeDisplay(start)} - ${formatTimeDisplay(end)})`);
+                            setProgress({ current: i + 1, total });
+                            const chunkText = await generateSegment(uploadedFile.uri, start, end);
+                            if (chunkText) {
+                                accumulated += chunkText + "\n\n";
+                                setLiveText(accumulated);
+                            }
+                        }
+                    }
+                    setStatus('completed');
+                    setCurrentAction('เสร็จสมบูรณ์');
+                } catch (e) {
+                    console.error(e);
+                    setStatus('error');
+                    setCurrentAction(`Error: ${e.message}`);
+                }
+            };
+
+            const download = () => {
+                const blob = new Blob([liveText], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `subtitle.${outputFormat}`;
+                a.click();
+            };
+
+            return (
+                <div className="min-h-screen p-4 flex flex-col items-center bg-slate-950 text-slate-200">
+                    <div className="w-full max-w-5xl">
+                        
+                        {/* HEADER */}
+                        <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-slate-900 rounded-2xl shadow-lg border border-slate-800">
+                                    <AppLogo />
+                                </div>
+                                <div>
+                                    <h1 className="text-3xl font-bold logo-gradient tracking-tight">AI AUDIO 2 SUB</h1>
+                                    <p className="text-xs text-slate-500 font-medium tracking-wide">EMBEDDED KEY EDITION</p>
+                                </div>
+                            </div>
+                            
+                            <div className="flex bg-slate-900 rounded-xl p-1.5 border border-slate-800 shadow-sm">
+                                <button onClick={() => setProvider('google')} className={`px-6 py-2 text-xs font-bold rounded-lg transition-all ${provider === 'google' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>GEMINI</button>
+                                <button onClick={() => setProvider('groq')} className={`px-6 py-2 text-xs font-bold rounded-lg transition-all ${provider === 'groq' ? 'bg-orange-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>WHISPER</button>
+                            </div>
+                        </div>
+
+                        {/* CONFIG & FILE */}
+                        <div className="glass rounded-2xl p-6 mb-6 shadow-xl border border-slate-800/50">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                                <div className="space-y-4">
+                                    
+                                    {/* API KEY INPUT WITH EMBEDDED RESET */}
+                                    <div>
+                                        <label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold block mb-1.5">
+                                            API Key ({apiKey === EMBEDDED_KEYS[provider] ? 'ใช้ Key จาก Code' : 'Custom Key'})
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="password" 
+                                                value={apiKey} 
+                                                onChange={e => saveKey(e.target.value)} 
+                                                className={`flex-1 bg-slate-900/50 border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/50 outline-none transition-all
+                                                ${apiKey === EMBEDDED_KEYS[provider] ? 'border-green-500/50 text-green-400' : 'border-slate-700/50'}`}
+                                                placeholder="API Key..." 
+                                            />
+                                            <button 
+                                                onClick={useEmbeddedKey}
+                                                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-xl w-12 flex items-center justify-center cursor-pointer transition-colors" 
+                                                title="รีเซ็ตเป็น Key ที่ฝังในโค้ด"
+                                            >
+                                                <IconCode size={18} />
+                                            </button>
+                                        </div>
+                                        {apiKey === EMBEDDED_KEYS[provider] && (
+                                            <p className="text-[10px] text-green-500 mt-1 font-mono">* Using Embedded Key</p>
+                                        )}
+                                    </div>
+
+                                    <div className="flex gap-4">
+                                        <div className="flex-1">
+                                            <label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold block mb-1.5">Format</label>
+                                            <div className="flex bg-slate-900/50 rounded-xl border border-slate-700/50 p-1">
+                                                <button onClick={() => setOutputFormat('srt')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${outputFormat === 'srt' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>SRT</button>
+                                                <button onClick={() => setOutputFormat('vtt')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${outputFormat === 'vtt' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>VTT</button>
+                                            </div>
+                                        </div>
+                                        {provider === 'google' && (
+                                            <div className="flex-1">
+                                                 <label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold block mb-1.5">Model</label>
+                                                 <select value={model} onChange={e => setModel(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-3 py-2 text-xs font-medium h-[42px] focus:ring-2 focus:ring-blue-500/50 outline-none">
+                                                    <option value="gemini-3-flash-preview">Gemini 3.0 Flash</option>
+                                                    <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash</option>
+                                                    <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                <div className="flex gap-4 items-center">
+                                    <label className={`flex-1 border-2 border-dashed rounded-xl h-full flex flex-col items-center justify-center cursor-pointer transition-all p-4 group
+                                        ${file ? 'border-blue-500/50 bg-blue-500/5' : 'border-slate-700 hover:border-blue-500/50 hover:bg-slate-800/50'}`}>
+                                        <input type="file" onChange={handleFileSelect} className="hidden" accept="audio/*,video/*" />
+                                        {file ? (
+                                            <div className="text-center">
+                                                <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-2 text-blue-400">
+                                                    <IconFile size={20} />
+                                                </div>
+                                                <div className="text-blue-400 font-bold text-sm truncate max-w-[140px]">{file.name}</div>
+                                                <div className="text-[10px] text-slate-500 font-mono mt-1 bg-slate-900/50 px-2 py-0.5 rounded-full inline-block">{formatTimeDisplay(duration)}</div>
+                                            </div>
+                                        ) : (
+                                            <div className="text-center text-slate-500 group-hover:text-slate-400">
+                                                <div className="w-10 h-10 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-2 group-hover:bg-slate-700 transition-colors">
+                                                    <IconFile size={20} />
+                                                </div>
+                                                <span className="text-xs font-bold uppercase tracking-wide">Select Audio/Video</span>
+                                            </div>
+                                        )}
+                                    </label>
+                                    <button 
+                                        onClick={run} 
+                                        disabled={!file || status === 'running' || status === 'uploading' || status === 'processing'}
+                                        className={`h-full px-8 rounded-xl font-bold shadow-lg transition-all flex flex-col items-center justify-center gap-2 min-w-[110px] relative overflow-hidden
+                                        ${status === 'running' || status === 'processing' 
+                                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700' 
+                                            : 'bg-gradient-to-br from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border border-blue-500/50'}`}
+                                    >
+                                        {status === 'running' ? (
+                                            <>
+                                                <span className="animate-spin text-2xl">⟳</span>
+                                                <span className="text-[10px] opacity-80 uppercase tracking-wider">Working</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <IconPlay size={28} fill="currentColor" className="ml-1" />
+                                                <span className="text-[10px] opacity-90 uppercase tracking-wider">Start</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 mt-4 px-1">
+                                <div className="relative flex items-center">
+                                    <input type="checkbox" id="erotic" checked={isEroticMode} onChange={e => setIsEroticMode(e.target.checked)} className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-600 bg-slate-900 transition-all checked:border-red-500 checked:bg-red-500" />
+                                    <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                    </div>
+                                </div>
+                                <label htmlFor="erotic" className="text-xs text-slate-400 cursor-pointer select-none hover:text-slate-300 transition-colors">
+                                    Enable Unrestricted Mode (18+) <span className="text-slate-600 ml-1">- ลดการเซ็นเซอร์เนื้อหา</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* LIVE MONITOR */}
+                        <div className="glass rounded-2xl overflow-hidden shadow-2xl flex flex-col border border-slate-800/50" style={{height: '50vh'}}>
+                            
+                            <div className="bg-slate-900/90 p-3 border-b border-slate-800 flex justify-between items-center backdrop-blur-md">
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-2.5 h-2.5 rounded-full shadow-lg ${status === 'running' ? 'bg-green-500 animate-pulse shadow-green-500/50' : 'bg-slate-700'}`}></div>
+                                    <span className="text-xs font-mono font-medium text-slate-300 tracking-wide uppercase">
+                                        {status === 'idle' ? 'SYSTEM READY' : currentAction}
+                                    </span>
+                                </div>
+                                {liveText && (
+                                    <button onClick={download} className="flex items-center gap-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 px-4 py-1.5 rounded-lg text-xs font-bold border border-blue-500/30 transition-all">
+                                        <IconDownload size={14} /> DOWNLOAD {outputFormat.toUpperCase()}
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="relative flex-1 bg-black/40">
+                                <textarea 
+                                    ref={textareaRef}
+                                    value={liveText}
+                                    readOnly
+                                    className="w-full h-full bg-transparent p-6 text-xs md:text-sm font-mono text-slate-300 focus:outline-none resize-none leading-relaxed"
+                                    placeholder="// Output logs will appear here..."
+                                />
+                            </div>
+                        </div>
+                        
+                        <div className="text-center mt-8 pb-4">
+                            <p className="text-[10px] text-slate-600 font-mono">POWERED BY GEMINI 3.0 & WHISPER V3 • SECURE CLIENT-SIDE PROCESSING</p>
+                        </div>
+
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
